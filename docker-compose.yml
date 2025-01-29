@@ -1,0 +1,48 @@
+services:
+    # Сервис для OpenSearch
+    opensearch:
+        image: opensearchproject/opensearch:latest
+        container_name: opensearch
+        environment:
+            - discovery.type=single-node # Однокластеровый узел - один сервер
+            - plugins.security.disabled=true # для простоты разработки
+            - OPENSEARCH_JAVA_OPTS=-Xms512m -Xmx512m # Ограничение памяти для OpenSearch
+            - OPENSEARCH_INITIAL_ADMIN_PASSWORD=1fK#_l0oSxx4%7u!R  # Пароль для admin
+            - OPENSEARCH_HOSTS=http://localhost:9200
+            - OPENSEARCH_URL=http://localhost:9200
+        ports:
+            - "9200:9200" # Порт для API OpenSearch
+        volumes:
+            - opensearch-data:/usr/share/opensearch/data # Место для хранения данных
+        restart: always # Перезапускать контейнеры при сбоях
+
+    # Сервис для OpenSearch Dashbords
+    dashboards:
+        image: opensearchproject/opensearch-dashboards:latest
+        container_name: dashboards
+        environment:
+            - OPENSEARCH_HOSTS=["http://opensearch:9200"] # указываем OpenSearch как источник
+        ports:
+            - "5601:5601" # Порт для веб-интерфейса Dashboards
+        depends_on:
+            - opensearch # Dashboards ждет запуска OpenSerach
+        restart: always
+
+    # Сервис для API на Python
+    api:
+        build: ./api # Папка с кодом API (создам позже)
+        container_name: api
+        environment:
+            - OPENSEARCH_URL=http://opensearch:9200 # Путь к OpenSearch для API
+        ports:
+            - "8000:8000" # Порт для доступа к API
+        depends_on:
+            - opensearch # API ждет запуска OpenSearch
+        volumes: 
+            - ./api:/app # Монтируем локальную папку с кодом
+        restart: always
+
+
+# Определяем том для данных OpenSearch
+volumes:
+    opensearch-data:
