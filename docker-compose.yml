@@ -5,13 +5,13 @@ services:
         container_name: opensearch
         environment:
             - discovery.type=single-node # Однокластеровый узел - один сервер
-            - plugins.security.disabled=true # для простоты разработки
-            - OPENSEARCH_JAVA_OPTS=-Xms512m -Xmx512m # Ограничение памяти для OpenSearch
-            - OPENSEARCH_INITIAL_ADMIN_PASSWORD=1fK#_l0oSxx4%7u!R  # Пароль для admin
-            - OPENSEARCH_HOSTS=http://localhost:9200
-            - OPENSEARCH_URL=http://localhost:9200
+            - OPENSEARCH_JAVA_OPTS=-Xms512m -Xmx512m # Ограничение памяти 
+            - OPENSEARCH_INITIAL_ADMIN_PASSWORD=S!rong_Password100% 
+            - plugins.security.disabled=true
+            - OPENSEARCH_PLUGINS=k-NN # Поддержка k-NN
+            - network.host=0.0.0.0 
         ports:
-            - "9200:9200" # Порт для API OpenSearch
+            - "9200:9200" 
         volumes:
             - opensearch-data:/usr/share/opensearch/data # Место для хранения данных
         restart: always # Перезапускать контейнеры при сбоях
@@ -20,26 +20,34 @@ services:
     dashboards:
         image: opensearchproject/opensearch-dashboards:latest
         container_name: dashboards
-        environment:
-            - OPENSEARCH_HOSTS=["http://opensearch:9200"] # указываем OpenSearch как источник
-        ports:
-            - "5601:5601" # Порт для веб-интерфейса Dashboards
         depends_on:
             - opensearch # Dashboards ждет запуска OpenSerach
+        environment:
+            - OPENSEARCH_HOSTS=["http://opensearch:9200"] 
+            - OPENSEARCH_USERNAME=admin
+            - OPENSEARCH_PASSWORD=S!rong_Password100%
+            - DISABLE_SECURITY_DASHBOARDS_PLUGIN=true # Отключение плагина безопасности
+        ports:
+            - "5601:5601" 
         restart: always
 
     # Сервис для API на Python
     api:
-        build: ./api # Папка с кодом API (создам позже)
+        build: ./api 
         container_name: api
         environment:
             - OPENSEARCH_URL=http://opensearch:9200 # Путь к OpenSearch для API
+            - OPENSEARCH_USER=admin
+            - OPENSEARCH_PASSWORD=S!rong_Password100%
+            - OLLAMA_HOST=http://host.docker.internal:11434 # Подключаем ollama
+        extra_hosts:
+              - "host.docker.internal:host-gateway" # для работы ollama 
         ports:
-            - "8000:8000" # Порт для доступа к API
+            - "8000:8000" 
         depends_on:
             - opensearch # API ждет запуска OpenSearch
         volumes: 
-            - ./api:/app # Монтируем локальную папку с кодом
+            - ./api:/app
         restart: always
 
 
