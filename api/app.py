@@ -7,6 +7,7 @@ from strawberry.asgi import GraphQL
 from opensearchpy import OpenSearch
 from sentence_transformers import SentenceTransformer
 import ollama
+from googletrans import Translator
 
 # Конфигурация OpenSearch
 OPENSEARCH_URL = os.getenv("OPENSEARCH_URL", "http://opensearch:9200")
@@ -36,7 +37,7 @@ if not client.indices.exists(INDEX_NAME):
             "settings": {
                 "index": {
                     "knn": True,
-                    "knn.algo_param.ef_search": 100, # точность поиска k-NN
+                    "knn.algo_param.ef_search": 1000, # точность поиска k-NN
                     "number_of_shards": 1, # количество разделов, оптимально для небольшого объема данных
                     "number_of_replicas": 0, # количество копий индекса, оптимально для одного сервера
                 }
@@ -53,8 +54,8 @@ if not client.indices.exists(INDEX_NAME):
                             "name": "hnsw",
                             "engine": "nmslib",
                             "parameters": {
-                                "ef_construction": 128, 
-                                "m": 16 # кол-во связей между узлами
+                                "ef_construction": 512, 
+                                "m": 48 # кол-во связей между узлами
                             }
                         }}
                 }
@@ -90,9 +91,9 @@ class Query:
             "query": {
                 "bool": {
                     "should": [ # Поиск и по тексту, и по заголовку
-                        {"knn": {"vector": {"vector": vector, "k": 12}}},
-                        {"match": {"title": {"query": searchString, "boost": 2}}}, # Увеличение приоритета заголовков
-                        {"match": {"text": {"query": searchString}}}
+                        {"knn": {"vector": {"vector": vector, "k": 20}}},
+                        #{"match": {"title": {"query": searchString, "boost": 2}}}, # Увеличение приоритета заголовков
+                        #{"match": {"text": {"query": searchString}}}
                     ]
                 }
             }
@@ -109,27 +110,44 @@ class Query:
         '''Суммаризация текста документов'''
         if len(ids) > 50:
             raise ValueError("Превышено максимальное число документов (50)")
-        
+            
         docs = [client.get(index=INDEX_NAME, id=doc_id)["_source"]["text"] for doc_id in ids]
         input_text = " ".join(docs)
 
-        max_chunk_size = 5000 # размер чанка для суммаризации
-        chunks = [input_text[i:i+max_chunk_size] for i in range(0, len(input_text), max_chunk_size)]
+        max_chunk_size = 5000  # размер чанка для суммаризации
+        chunks = [input_text[i:i + max_chunk_size] for i in range(0, len(input_text), max_chunk_size)]
 
-        summaries = []
-        for chunk in chunks:
+        summary = ""
+        translator = Translator()
+        for i, chunk in enumerate(chunks):
+            if i == 0:
+                prompt = f"Суммаризируй этот текст: {chunk}"
+            else:
+                prompt = f"Суммаризируй этот текст, учитывая предыдущий контекст: {summary} {chunk}"
+
             response = ollama.chat(model="mistral", messages=[
                 {
                     "role": "user",
-                    "content": f"Суммаризируй этот текст: {chunk}"
+                    "content": prompt
                 }
             ])
 
-            # Выводим ответ в строковом формате
+            # Извлекаем текст сообщения
             summary_text = response["message"] if isinstance(response, dict) and "message" in response else str(response)
-            summaries.append(summary_text)
 
-        return " ".join(summaries)
+            if not summary_text:
+                summary_text = str(response)  # Используем ответ как строку, если не удалось извлечь содержимое
+
+
+            try:
+                # Принудительный перевод на русский язык, если текст не на русском
+                translation = translator.translate(summary_text, dest='ru').text
+                summary = translation
+            except Exception as e:
+                print(f"Ошибка перевода: {e}. Используем оригинальный текст: {summary_text}")
+                summary = summary_text  # Используем оригинальный текст, если перевод не выполнился
+
+        return summary
 
 
 
@@ -138,7 +156,8 @@ class Mutation:
     @strawberry.mutation
     def indexDocument(self, title: str, text: str) -> Document:
         '''Добавление нового документа с векторизацией'''
-        vector = vectorizer.encode(text).tolist()
+        full_text = title + ' ' + text
+        vector = vectorizer.encode(full_text).tolist()
         doc = {"title": title, "text": text, "vector": vector}
         response = client.index(index=INDEX_NAME, body=doc, refresh=True)
         return Document(id=response["_id"], title=title, text=text)
